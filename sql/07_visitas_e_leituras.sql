@@ -11,6 +11,20 @@
    a partir de rota86.agenda_visita_semanal — ver 08_roteiro_e_visita_realizada.sql),
    que é a agenda dia a dia. Esta tabela aqui é o AGREGADO mensal por loja
    (previsto total x executado total), grão de snapshot mensal.
+
+   NOTA sobre leitura+STAR: confirmado nos dados reais (16/09/2026) que
+   hoje `leitura_por_loja.csv` (target/leitura, ~2.937 lojas) e
+   `lojs_star.csv` (status STAR, só ~24 lojas — as poucas com pendência ou
+   recém-recuperadas) continuam vindo como DOIS arquivos separados, não
+   uma extração já unificada do Power BI. Decisão (confirmada com o
+   usuário): por ora os arquivos continuam separados na origem; existe um
+   motor de união (`CODIGO/unir_leitura_star.py`) que faz o LEFT JOIN por
+   ID_LOJA e gera um CSV único (`retailx_leituras.csv`) no formato que
+   `rota86.stg_leitura_star_loja` espera — é esse arquivo unificado que
+   deve ser carregado no staging, não os dois brutos direto. Loja ausente
+   de `lojs_star.csv` vira `status_star = NULL` (nunca esteve na lista de
+   STAR daquela competência), nunca `NOK` por padrão — ver comentário na
+   coluna abaixo.
    ============================================================================ */
 
 /* ---------------------------------------------------------------------------
@@ -71,11 +85,14 @@ CREATE TABLE rota86.leitura_star_loja_mes (
     pct_leitura            AS (CASE WHEN target_leitura > 0
                                 THEN CAST(leitura_realizada AS DECIMAL(9,4)) / target_leitura
                                 ELSE NULL END) PERSISTED,
-    status_star            VARCHAR(3)      NOT NULL,   -- 'OK' | 'NOK' (normalizado; NOK = pendência ativa, OK = recuperada)
+    status_star            VARCHAR(3)      NULL,       -- 'OK' | 'NOK' | NULL. NULL = loja não está na lista de STAR desta
+                                                          -- competência (não é pendência — é ausência de registro; confirmado
+                                                          -- nos dados reais em 16/09/2026: lojs_star.csv só lista ~24 de 2.937
+                                                          -- lojas). NOK = pendência ativa listada; OK = recuperada.
     batch_id               BIGINT          NOT NULL,
     carregado_em            DATETIME2(0)    NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT pk_leitura_star_loja_mes PRIMARY KEY (id_loja, ano_mes),
-    CONSTRAINT ck_leitura_star_status CHECK (status_star IN ('OK','NOK'))
+    CONSTRAINT ck_leitura_star_status CHECK (status_star IN ('OK','NOK') OR status_star IS NULL)
 );
 CREATE INDEX ix_leitura_star_mes ON rota86.leitura_star_loja_mes (ano_mes);
 GO
@@ -114,7 +131,7 @@ BEGIN
             CASE
                 WHEN UPPER(status_star_raw) IN ('OK', 'SIM') THEN 'OK'
                 WHEN UPPER(status_star_raw) IN ('NOK', 'NÃO', 'NAO') THEN 'NOK'
-                ELSE 'NOK'  -- ausência de leitura de STAR é tratada como pendência, não como "sem dado"
+                ELSE NULL  -- loja fora da lista de STAR desta competência — ausência de registro, não pendência (ver comentário na tabela)
             END AS status_star,
             batch_id
         FROM rota86.stg_leitura_star_loja

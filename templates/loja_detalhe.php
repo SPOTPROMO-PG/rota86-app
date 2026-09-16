@@ -19,7 +19,9 @@ declare(strict_types=1);
 <section class="cartao">
     <h2>Leitura do mês</h2>
     <p><?= (int) $leitura['leitura_realizada'] ?> de <?= (int) $leitura['target_leitura'] ?> —
-       STAR: <span class="etiqueta"><?= htmlspecialchars($leitura['status_star']) ?></span></p>
+       <?php if ($leitura['status_star'] !== null): ?>
+           STAR: <span class="etiqueta"><?= htmlspecialchars($leitura['status_star']) ?></span>
+       <?php endif; ?></p>
 </section>
 <?php endif; ?>
 
